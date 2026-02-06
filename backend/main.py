@@ -69,20 +69,28 @@ async def chat(request: JsonRpcRequest):
         agent = get_agent()
         result = await agent.run(user_message=prompt, history=_conversation_history)
         
-        # 3. Process result messages - skip first message which is the user task
+        # 3. Process result messages
         static_ui_payloads = []
-        agent_text_response = ""
+        agent_text_responses = []  # Collect ALL agent text messages
         
         if result.messages:
-            # Skip the first message - it's always the user's task
-            messages_to_process = result.messages[1:] if len(result.messages) > 1 else []
+            # Log all messages for debugging
+            logger.info(f"=== Processing {len(result.messages)} messages ===")
             
-            for msg in messages_to_process:
+            for i, msg in enumerate(result.messages):
                 msg_type = type(msg).__name__
                 msg_source = getattr(msg, 'source', '')
-                logger.info(f"Message type: {msg_type}, source: {msg_source}")
+                content_preview = ""
                 
-                # Only process messages from the agent, not user
+                if hasattr(msg, 'content'):
+                    if isinstance(msg.content, str):
+                        content_preview = msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
+                    elif isinstance(msg.content, list):
+                        content_preview = f"[list with {len(msg.content)} items]"
+                
+                logger.info(f"  [{i}] type={msg_type}, source={msg_source}, content={content_preview}")
+                
+                # Skip user messages
                 if msg_source == 'user':
                     continue
                 
@@ -94,16 +102,20 @@ async def chat(request: JsonRpcRequest):
                                 parsed = json.loads(content_item.content)
                                 if isinstance(parsed, dict) and parsed.get("type") == "static_ui":
                                     static_ui_payloads.append(parsed)
-                                    logger.info(f"Found static UI: {parsed.get('component')}")
+                                    logger.info(f"  → Found static UI: {parsed.get('component')}")
                             except (json.JSONDecodeError, TypeError):
                                 pass
                 
-                # Get text response from agent (source should be 'ui_agent')
+                # Collect text response from agent (source should be 'ui_agent')
                 if msg_source == 'ui_agent' and hasattr(msg, 'content') and isinstance(msg.content, str):
                     content = msg.content.strip()
                     
                     # Skip raw static_ui JSON
-                    if '"static_ui"' in content or content.startswith('{"type"'):
+                    if content.startswith('{"type"') or content.startswith('[{"'):
+                        continue
+                    
+                    # Remove any embedded JSON
+                    if '"static_ui"' in content:
                         json_start = content.find('{"type"')
                         if json_start > 0:
                             content = content[:json_start].strip()
@@ -111,11 +123,17 @@ async def chat(request: JsonRpcRequest):
                             continue
                     
                     if content:
-                        agent_text_response = content
+                        agent_text_responses.append(content)
+                        logger.info(f"  → Collected agent text: {content[:50]}...")
+        
+        # Use the LAST agent text response (after tool reflection)
+        agent_text_response = agent_text_responses[-1] if agent_text_responses else ""
+        logger.info(f"Final text response: {agent_text_response[:100] if agent_text_response else '(empty)'}...")
         
         # Default message if we have UI but no text
         if static_ui_payloads and not agent_text_response:
-            agent_text_response = "Here's the data you requested:"
+            component_names = [p.get('component', 'unknown') for p in static_ui_payloads]
+            agent_text_response = f"Here's the {', '.join(component_names)} you requested:"
         
         if not agent_text_response and not static_ui_payloads:
             agent_text_response = "I processed your request."
@@ -127,6 +145,7 @@ async def chat(request: JsonRpcRequest):
         # Keep history manageable
         if len(_conversation_history) > 20:
             _conversation_history = _conversation_history[-20:]
+
 
         # 5. Parse for dynamic A2UI
         parsed_response = parse_a2ui_response(agent_text_response)
