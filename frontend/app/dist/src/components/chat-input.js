@@ -13,44 +13,75 @@ let ChatInput = class ChatInput extends LitElement {
     }
     static { this.styles = css `
     :host {
-      display: flex;
-      gap: 8px;
+      display: block;
       width: 100%;
+    }
+
+    form {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      background: #f9fafb;
+      padding: 10px 12px 10px 20px;
+      border-radius: 28px;
+      border: 1px solid #e5e7eb;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    form:focus-within {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+      background: #ffffff;
     }
 
     input {
       flex: 1;
-      padding: 12px;
-      border-radius: 24px;
-      border: 1px solid #333;
-      background-color: #333;
-      color: white;
+      border: none;
+      background: transparent;
+      color: #1f2937;
       font-size: 1rem;
       outline: none;
+      padding: 8px 0;
+      font-family: inherit;
     }
 
-    input:focus {
-      border-color: #0078d4;
+    input::placeholder {
+      color: #9ca3af;
     }
 
     button {
-      padding: 0 20px;
-      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
       border: none;
-      background-color: #0078d4;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
       color: white;
       cursor: pointer;
-      font-weight: 600;
-      transition: background-color 0.2s;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
     }
 
     button:hover:not(:disabled) {
-      background-color: #106ebe;
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.95);
     }
 
     button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    button svg {
+      width: 20px;
+      height: 20px;
     }
   `; }
     _handleSubmit(e) {
@@ -60,20 +91,26 @@ let ChatInput = class ChatInput extends LitElement {
             this.dispatchEvent(new CustomEvent("send-message", {
                 detail: { text: input.value },
                 bubbles: true,
-                composed: true
+                composed: true,
             }));
             input.value = "";
         }
     }
     render() {
         return html `
-      <form style="display:contents" @submit=${this._handleSubmit}>
-        <input 
-            type="text" 
-            placeholder="Type a message..." 
-            ?disabled=${this.disabled}
+      <form @submit=${this._handleSubmit}>
+        <input
+          type="text"
+          placeholder="Type a message..."
+          ?disabled=${this.disabled}
+          autocomplete="off"
         />
-        <button type="submit" ?disabled=${this.disabled}>Send</button>
+        <button type="submit" ?disabled=${this.disabled}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
       </form>
     `;
     }
