@@ -14,7 +14,6 @@
  limitations under the License.
  */
 import { config } from "dotenv";
-import * as Middleware from "./middleware";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +23,7 @@ export default async () => {
         shell: resolve(__dirname, "index.html"),
     };
     return {
-        plugins: [Middleware.A2AMiddleware.plugin()],
+        plugins: [],
         build: {
             rollupOptions: {
                 input: entry,

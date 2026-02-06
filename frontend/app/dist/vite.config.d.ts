@@ -1,5 +1,5 @@
 declare const _default: () => Promise<{
-    plugins: import("vite").Plugin<any>[];
+    plugins: any[];
     build: {
         rollupOptions: {
             input: Record<string, string>;

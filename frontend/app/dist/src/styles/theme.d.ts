@@ -1,0 +1,4 @@
+import { v0_8 } from "@a2ui/lit";
+export declare const darkTheme: v0_8.Types.Theme;
+export declare const chatStyles = "\n  :host {\n    display: flex;\n    flex-direction: column;\n    height: 100vh;\n    background-color: #1e1e1e;\n    color: #e0e0e0;\n    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;\n  }\n\n  header {\n    padding: 1rem;\n    background-color: #252526;\n    border-bottom: 1px solid #333;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n  }\n\n  header h1 {\n    margin: 0;\n    font-size: 1.2rem;\n    font-weight: 500;\n  }\n\n  .chat-history {\n    flex: 1;\n    overflow-y: auto;\n    padding: 1rem;\n    display: flex;\n    flex-direction: column;\n    gap: 1rem;\n  }\n\n  .input-area {\n    padding: 1rem;\n    background-color: #252526;\n    border-top: 1px solid #333;\n  }\n";
+//# sourceMappingURL=theme.d.ts.map

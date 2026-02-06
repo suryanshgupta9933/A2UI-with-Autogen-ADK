@@ -16,7 +16,6 @@
 
 import { config } from "dotenv";
 import { UserConfig } from "vite";
-import * as Middleware from "./middleware";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +29,7 @@ export default async () => {
   };
 
   return {
-    plugins: [Middleware.A2AMiddleware.plugin()],
+    plugins: [],
     build: {
       rollupOptions: {
         input: entry,
