@@ -8,6 +8,7 @@ and dynamic A2UI. Supports conversation history for context-aware responses.
 import os
 import re
 import json
+from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -22,6 +23,9 @@ from core.logger import configure_logger
 from tools.static import get_static_ui_tools, ALL_STATIC_TOOLS
 
 logger = configure_logger("agents.ui_agent")
+
+# Prompt file path
+PROMPT_FILE = Path(__file__).parent / "prompts" / "ui_agent.txt"
 
 
 class ChatMessage(BaseModel):
@@ -85,47 +89,21 @@ def parse_a2ui_response(response_text: str) -> AgentResponse:
     )
 
 
+def _load_prompt_file() -> str:
+    """Load the system prompt from the external file."""
+    try:
+        with open(PROMPT_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning(f"Prompt file not found: {PROMPT_FILE}")
+        return ""
+
+
 def _get_system_prompt() -> str:
-    """Build the complete system prompt with static UI tool instructions."""
-    static_ui_instructions = """
-# UI GENERATION RULES
-
-You have pre-built UI tools for standard data visualization:
-
-## Available Tools:
-
-### show_data_table
-Display tabular data (users, products, transactions, lists).
-- columns: List of column headers
-- rows: List of rows (each row is a list of values)  
-- title: Optional table title
-
-### show_time_series
-Display time series charts (trends, analytics over time).
-- points: List of {timestamp, value} objects
-- title: Optional chart title
-
-### show_stat_card
-Display KPI/metric cards (totals, counts, percentages).
-- title: Metric name
-- value: Metric value
-- subtitle: Optional context
-- change_value/change_direction: Optional trend indicator
-
-## When to use tools:
-- Tables, lists → show_data_table
-- Charts, trends over time → show_time_series  
-- Single metrics, KPIs → show_stat_card
-
-## When NOT to use tools (generate dynamic A2UI instead):
-- Weather widgets, forms, custom interactive UIs
-- Complex multi-component layouts
-
-When using a tool, provide a brief text response explaining what you're showing.
-"""
-    
+    """Build the complete system prompt from file + A2UI base prompt."""
+    ui_agent_prompt = _load_prompt_file()
     base_prompt = get_a2ui_system_prompt()
-    return static_ui_instructions + "\n\n" + base_prompt
+    return ui_agent_prompt + "\n\n" + base_prompt
 
 
 class UIAgent:
