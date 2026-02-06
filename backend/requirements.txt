@@ -6,3 +6,4 @@ autogen-core>=0.4.0
 pydantic
 python-dotenv
 jsonschema
+a2a-sdk
