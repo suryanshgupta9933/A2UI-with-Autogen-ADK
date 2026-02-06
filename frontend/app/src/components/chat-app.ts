@@ -313,6 +313,12 @@ export class ChatApp extends SignalWatcher(LitElement) {
     ];
 
     this.loading = true;
+
+    // Clear previous artifacts before new request
+    this.artifacts = [];
+    this.globalProcessor.clearSurfaces();
+    this.lightProcessor.clearSurfaces();
+
     try {
       const parts = await this.client.sendChat(text);
 
@@ -339,11 +345,6 @@ export class ChatApp extends SignalWatcher(LitElement) {
             // It's dynamic A2UI
             hasA2UIData = true;
             a2uiMessages.push(data);
-            newArtifacts.push({
-              id: crypto.randomUUID(),
-              type: "dynamic",
-              rawJson: data,
-            });
           }
         }
       }
@@ -351,16 +352,19 @@ export class ChatApp extends SignalWatcher(LitElement) {
       // Process dynamic A2UI
       if (hasA2UIData) {
         console.log("Processing A2UI data:", a2uiMessages);
-        this.globalProcessor.clearSurfaces();
         this.globalProcessor.processMessages(a2uiMessages);
-        this.lightProcessor.clearSurfaces();
         this.lightProcessor.processMessages(a2uiMessages);
+
+        // Add single dynamic artifact for all A2UI surfaces
+        newArtifacts.push({
+          id: crypto.randomUUID(),
+          type: "dynamic",
+          rawJson: a2uiMessages,
+        });
       }
 
-      // Update artifacts
-      if (newArtifacts.length > 0) {
-        this.artifacts = newArtifacts;
-      }
+      // Update artifacts - replace, don't append
+      this.artifacts = newArtifacts;
 
       const hasAnyUI = newArtifacts.length > 0;
       this.messages = [
