@@ -11,16 +11,30 @@ import * as UI from "@a2ui/lit/ui";
 // Import components
 import "./chat-input.js";
 import "./chat-message.js";
+import "./static-ui-renderer.js";
 
 interface ChatItem {
-    id: string;
-    role: "user" | "model";
-    text?: string;
+  id: string;
+  role: "user" | "model";
+  text?: string;
+}
+
+interface StaticUIPayload {
+  type: "static_ui";
+  component: string;
+  data: any;
+}
+
+interface ArtifactItem {
+  id: string;
+  type: "static" | "dynamic";
+  payload?: StaticUIPayload;
+  rawJson?: any;
 }
 
 @customElement("chat-app")
 export class ChatApp extends SignalWatcher(LitElement) {
-    static styles = css`
+  static styles = css`
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
     * {
@@ -33,7 +47,7 @@ export class ChatApp extends SignalWatcher(LitElement) {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
-    /* Left Panel - Chat (Light Theme) */
+    /* Left Panel - Chat */
     .chat-panel {
       flex: 1;
       display: flex;
@@ -73,10 +87,6 @@ export class ChatApp extends SignalWatcher(LitElement) {
 
     .artifacts-panel .panel-title::before {
       background: linear-gradient(135deg, #10b981, #059669);
-    }
-
-    .artifacts-panel .panel-title {
-      color: #111827;
     }
 
     .chat-history {
@@ -141,6 +151,9 @@ export class ChatApp extends SignalWatcher(LitElement) {
       overflow-y: auto;
       padding: 24px;
       background: #f1f5f9;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     .empty-artifacts {
@@ -181,25 +194,63 @@ export class ChatApp extends SignalWatcher(LitElement) {
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.03);
     }
 
-    .artifact-card-header {
-      padding: 14px 20px;
-      background: #f8fafc;
-      border-bottom: 1px solid #e2e8f0;
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: #374151;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .artifact-card-header::before {
-      content: '✨';
-      font-size: 1rem;
-    }
-
     .artifact-card-content {
       padding: 24px;
+    }
+
+    /* JSON Dropdown */
+    .json-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      margin-top: 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 0.8125rem;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .json-toggle:hover {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .json-toggle.open {
+      background: #e0e7ff;
+      border-color: #c7d2fe;
+      color: #4338ca;
+    }
+
+    .json-toggle svg {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.2s;
+    }
+
+    .json-toggle.open svg {
+      transform: rotate(180deg);
+    }
+
+    .json-content {
+      margin-top: 12px;
+      padding: 16px;
+      background: #1e293b;
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 300px;
+    }
+
+    .json-content pre {
+      margin: 0;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.75rem;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     /* Scrollbar styling */
@@ -224,83 +275,117 @@ export class ChatApp extends SignalWatcher(LitElement) {
     }
   `;
 
-    @provide({ context: UI.Context.themeContext })
-    @state()
-    theme: v0_8.Types.Theme = darkTheme;
+  @provide({ context: UI.Context.themeContext })
+  @state()
+  theme: v0_8.Types.Theme = darkTheme;
 
-    private client = new A2UIClientService();
+  private client = new A2UIClientService();
 
-    @state() messages: ChatItem[] = [
-        {
-            id: "welcome",
-            role: "model",
-            text: "Hello! I can generate UI components for you. Try asking for a weather widget, contact form, or any other UI element.",
-        },
+  @state() messages: ChatItem[] = [
+    {
+      id: "welcome",
+      role: "model",
+      text: "Hello! I can generate UI components for you. Try:\n• \"Show me a table of users\"\n• \"Show sales data over time\"\n• \"Create a weather widget\"",
+    },
+  ];
+
+  @state() loading = false;
+
+  // Unified artifacts list
+  @state() artifacts: ArtifactItem[] = [];
+  @state() showJson: Record<string, boolean> = {};
+
+  // A2UI processors
+  private globalProcessor = v0_8.Data.createSignalA2uiMessageProcessor();
+  private lightProcessor = v0_8.Data.createSignalA2uiMessageProcessor();
+
+  toggleJson(id: string) {
+    this.showJson = { ...this.showJson, [id]: !this.showJson[id] };
+  }
+
+  async handleSend(e: CustomEvent) {
+    const text = e.detail.text;
+    if (!text) return;
+
+    this.messages = [
+      ...this.messages,
+      { id: crypto.randomUUID(), role: "user", text },
     ];
 
-    @state() loading = false;
+    this.loading = true;
+    try {
+      const parts = await this.client.sendChat(text);
 
-    private globalProcessor = v0_8.Data.createSignalA2uiMessageProcessor();
-    private lightProcessor = v0_8.Data.createSignalA2uiMessageProcessor();
+      let responseText = "";
+      let hasA2UIData = false;
+      const a2uiMessages: any[] = [];
+      const newArtifacts: ArtifactItem[] = [];
 
-    async handleSend(e: CustomEvent) {
-        const text = e.detail.text;
-        if (!text) return;
+      for (const part of parts) {
+        if (part.kind === "text") {
+          responseText += part.text;
+        } else if (part.kind === "data") {
+          const data = part.data as any;
 
-        this.messages = [
-            ...this.messages,
-            { id: crypto.randomUUID(), role: "user", text },
-        ];
-
-        this.loading = true;
-        try {
-            const parts = await this.client.sendChat(text);
-
-            let responseText = "";
-            let hasData = false;
-            const dataMessages: any[] = [];
-
-            for (const part of parts) {
-                if (part.kind === "text") {
-                    responseText += part.text;
-                } else if (part.kind === "data") {
-                    hasData = true;
-                    dataMessages.push(part.data);
-                }
-            }
-
-            if (hasData) {
-                console.log("Processing A2UI data:", dataMessages);
-                this.globalProcessor.clearSurfaces();
-                this.globalProcessor.processMessages(dataMessages);
-                this.lightProcessor.clearSurfaces();
-                this.lightProcessor.processMessages(dataMessages);
-            }
-
-            this.messages = [
-                ...this.messages,
-                {
-                    id: crypto.randomUUID(),
-                    role: "model",
-                    text: responseText || (hasData ? "I've generated a UI component for you. Check the Artifacts panel →" : "No response."),
-                },
-            ];
-        } catch (err) {
-            console.error(err);
-            this.messages = [
-                ...this.messages,
-                { id: crypto.randomUUID(), role: "model", text: "Error: Failed to get response." },
-            ];
-        } finally {
-            this.loading = false;
+          // Check if it's a static UI component
+          if (data?.type === "static_ui" && data?.component) {
+            newArtifacts.push({
+              id: crypto.randomUUID(),
+              type: "static",
+              payload: data as StaticUIPayload,
+              rawJson: data,
+            });
+          } else {
+            // It's dynamic A2UI
+            hasA2UIData = true;
+            a2uiMessages.push(data);
+            newArtifacts.push({
+              id: crypto.randomUUID(),
+              type: "dynamic",
+              rawJson: data,
+            });
+          }
         }
+      }
+
+      // Process dynamic A2UI
+      if (hasA2UIData) {
+        console.log("Processing A2UI data:", a2uiMessages);
+        this.globalProcessor.clearSurfaces();
+        this.globalProcessor.processMessages(a2uiMessages);
+        this.lightProcessor.clearSurfaces();
+        this.lightProcessor.processMessages(a2uiMessages);
+      }
+
+      // Update artifacts
+      if (newArtifacts.length > 0) {
+        this.artifacts = newArtifacts;
+      }
+
+      const hasAnyUI = newArtifacts.length > 0;
+      this.messages = [
+        ...this.messages,
+        {
+          id: crypto.randomUUID(),
+          role: "model",
+          text: responseText || (hasAnyUI ? "I've generated a UI component for you. Check the Artifacts panel →" : "No response."),
+        },
+      ];
+    } catch (err) {
+      console.error(err);
+      this.messages = [
+        ...this.messages,
+        { id: crypto.randomUUID(), role: "model", text: "Error: Failed to get response." },
+      ];
+    } finally {
+      this.loading = false;
     }
+  }
 
-    render() {
-        const surfaces = this.lightProcessor.getSurfaces();
-        const hasSurfaces = surfaces.size > 0;
+  render() {
+    const hasAnyArtifact = this.artifacts.length > 0;
 
-        return html`
+    return html`
       <!-- Left: Chat Panel -->
       <div class="chat-panel">
         <div class="panel-header">
@@ -309,10 +394,10 @@ export class ChatApp extends SignalWatcher(LitElement) {
 
         <div class="chat-history">
           ${repeat(
-            this.messages,
-            (m) => m.id,
-            (m) => html`<chat-message .role=${m.role} .text=${m.text}></chat-message>`
-        )}
+      this.messages,
+      (m) => m.id,
+      (m) => html`<chat-message .role=${m.role} .text=${m.text}></chat-message>`
+    )}
           ${this.loading ? html`<div class="loading-indicator">Generating response...</div>` : nothing}
         </div>
 
@@ -328,15 +413,36 @@ export class ChatApp extends SignalWatcher(LitElement) {
         </div>
 
         <div class="artifacts-content">
-          ${hasSurfaces
-                ? html`
+          ${hasAnyArtifact
+        ? this.artifacts.map((artifact) => html`
                 <div class="artifact-card">
                   <div class="artifact-card-content">
-                    <artifact-renderer .processor=${this.lightProcessor}></artifact-renderer>
+                    ${artifact.type === "static" && artifact.payload
+            ? html`<static-ui-renderer .payload=${artifact.payload}></static-ui-renderer>`
+            : html`<artifact-renderer .processor=${this.lightProcessor}></artifact-renderer>`
+          }
+                    
+                    <!-- JSON Dropdown -->
+                    ${artifact.rawJson ? html`
+                      <button 
+                        class="json-toggle ${this.showJson[artifact.id] ? 'open' : ''}"
+                        @click=${() => this.toggleJson(artifact.id)}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        View JSON
+                      </button>
+                      ${this.showJson[artifact.id] ? html`
+                        <div class="json-content">
+                          <pre>${JSON.stringify(artifact.rawJson, null, 2)}</pre>
+                        </div>
+                      ` : nothing}
+                    ` : nothing}
                   </div>
                 </div>
-              `
-                : html`
+              `)
+        : html`
                 <div class="empty-artifacts">
                   <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -350,18 +456,18 @@ export class ChatApp extends SignalWatcher(LitElement) {
         </div>
       </div>
     `;
-    }
+  }
 }
 
 @customElement("artifact-renderer")
 export class ArtifactRenderer extends SignalWatcher(LitElement) {
-    @provide({ context: UI.Context.themeContext })
-    @state()
-    theme: v0_8.Types.Theme = lightTheme;
+  @provide({ context: UI.Context.themeContext })
+  @state()
+  theme: v0_8.Types.Theme = lightTheme;
 
-    @state() processor: any = null;
+  @state() processor: any = null;
 
-    static styles = css`
+  static styles = css`
     :host {
       display: block;
     }
@@ -371,22 +477,22 @@ export class ArtifactRenderer extends SignalWatcher(LitElement) {
     }
   `;
 
-    render() {
-        if (!this.processor) return nothing;
+  render() {
+    if (!this.processor) return nothing;
 
-        const surfaces = this.processor.getSurfaces();
-        return html`
+    const surfaces = this.processor.getSurfaces();
+    return html`
       ${repeat(
-            surfaces,
-            ([id]) => id,
-            ([id, surface]) => html`
+      surfaces,
+      ([id]) => id,
+      ([id, surface]) => html`
           <a2ui-surface
             .surfaceId=${id}
             .surface=${surface}
             .processor=${this.processor}
           ></a2ui-surface>
         `
-        )}
+    )}
     `;
-    }
+  }
 }
