@@ -1,6 +1,5 @@
-"""
-A2UI Autogen Backend - Modular Architecture
-"""
+# A2UI Autogen Backend - Modular Architecture
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,6 +14,7 @@ from core.exceptions import A2UIValidationError
 
 # A2UI Imports
 from a2ui.validator import validate_a2ui_payload
+from a2ui.types import JsonRpcRequest, JsonRpcResponse, MessagePart  # [NEW] Import A2A types
 
 # Agent Imports
 from agents.data_agent import create_data_agent, parse_a2ui_response, AgentResponse
@@ -35,65 +35,91 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request/Response Models
-class ChatRequest(BaseModel):
-    message: str
+@app.post("/", response_model=JsonRpcResponse)
+async def chat_root(request: JsonRpcRequest):
+    return await chat(request)
 
-class ChatResponse(BaseModel):
-    text: str
-    a2ui_json: Optional[List[Dict[str, Any]]] = None
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    logger.info(f"Received chat request: {request.message}")
+@app.post("/chat", response_model=JsonRpcResponse)
+async def chat(request: JsonRpcRequest): # [MODIFIED] Use JsonRpcRequest
+    logger.info(f"Received request: {request}")
     
     try:
-        # Create and run agent
+        # 1. Synthesize the prompt from the request (Handle Text or UserActions)
+        prompt = request.get_query_text()
+        logger.info(f"Synthesized Agent Prompt: {prompt}")
+
+        # 2. Create and run agent
         agent = create_data_agent()
         
         # We assume single-turn chat for this POC
-        # processing the stream to get the final message content
         final_text_content = ""
+        result = await agent.run(task=prompt)
         
-        # Run agent and capture the result
-        # Note: autogen_agentchat 0.4.x run() returns a TaskResult
-        result = await agent.run(task=request.message)
-        
-        # The agent is using our custom prompt strategy, so the output is in the last message content
         if result.messages:
             last_msg = result.messages[-1]
             if hasattr(last_msg, 'content') and isinstance(last_msg.content, str):
                 final_text_content = last_msg.content
         
         if not final_text_content:
-            raise ValueError("Agent produced no output content.")
+            logger.warning("Agent produced no output content. Returning fallback.")
+            final_text_content = "I processed your request but have no specific response."
 
-        # Parse the custom response format (Text ---a2ui_JSON--- JSON)
+        # 3. Parse the custom response format (Text ---a2ui_JSON--- JSON)
         agent_response = parse_a2ui_response(final_text_content)
         
         logger.info(f"Agent Text Response: {agent_response.response[:50]}...")
         if agent_response.a2ui_payload:
             logger.info(f"Agent generated {len(agent_response.a2ui_payload)} A2UI messages.")
             
-            # VALIDATE A2UI PAYLOAD
+            # 4. VALIDATE A2UI PAYLOAD
             try:
                 validate_a2ui_payload(agent_response.a2ui_payload)
             except A2UIValidationError as e:
                 logger.error(f"A2UI Validation Error: {e}")
                 # We can choose to return an error, or just return text without UI
-                # For this demo, let's include the error in thoughts or log it
                 agent_response.thoughts += f"\n[System Error]: Generated UI failed validation: {str(e)}"
                 agent_response.a2ui_payload = [] # Clear invalid payload
         
-        return ChatResponse(
-            text=agent_response.response,
-            a2ui_json=agent_response.a2ui_payload
+        # 5. CONSTRUCT JSON-RPC RESPONSE
+        # The client expects a Task object with parts
+        response_parts = []
+        if agent_response.response:
+             response_parts.append({"kind": "text", "text": agent_response.response})
+        
+        if agent_response.a2ui_payload:
+            for item in agent_response.a2ui_payload:
+                 response_parts.append({
+                     "kind": "data",
+                     "data": item,
+                     "mimeType": "application/json+a2ui"
+                 })
+
+        task_result = {
+            "kind": "task",
+             "status": {
+                 "message": {
+                     "parts": response_parts,
+                     "role": "model",
+                     "kind": "message"
+                 }
+             }
+        }
+
+        return JsonRpcResponse(
+            id=request.id,
+            result=task_result
         )
 
     except Exception as e:
         logger.error(f"Error processing chat request: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi.responses import FileResponse
+
+@app.get("/.well-known/agent-card.json")
+async def get_agent_card():
+    return FileResponse("agent_card.json", media_type="application/json")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
