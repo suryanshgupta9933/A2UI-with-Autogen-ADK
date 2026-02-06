@@ -40,5 +40,17 @@ export default async () => {
     resolve: {
       dedupe: ["lit"],
     },
+    server: {
+      fs: {
+        allow: [
+          // Allow serving files from the app directory
+          resolve(__dirname),
+          // Allow serving files from packages
+          resolve(__dirname, "../packages"),
+          // Allow node_modules
+          resolve(__dirname, "node_modules"),
+        ],
+      },
+    },
   } satisfies UserConfig;
 };
