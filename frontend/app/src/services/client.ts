@@ -124,4 +124,21 @@ export class A2UIClientService {
         }
         return [];
     }
+
+    /**
+     * Send a user action from UI component interaction.
+     * Formats the action as a text message for the agent to process.
+     */
+    async sendAction(
+        actionName: string,
+        context: Record<string, unknown>,
+        sourceComponentId: string
+    ): Promise<Part[]> {
+        // Format as a clear message for the agent
+        const contextStr = Object.keys(context).length > 0
+            ? JSON.stringify(context)
+            : "(no data)";
+        const message = `[User Action] ${actionName} from component "${sourceComponentId}": ${contextStr}`;
+        return this.sendChat(message);
+    }
 }

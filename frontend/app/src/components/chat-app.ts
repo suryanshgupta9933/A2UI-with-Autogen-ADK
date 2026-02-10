@@ -303,6 +303,90 @@ export class ChatApp extends SignalWatcher(LitElement) {
     this.showJson = { ...this.showJson, [id]: !this.showJson[id] };
   }
 
+  /**
+   * Handle user actions from UI components (buttons, forms, etc.)
+   */
+  async handleUserAction(e: CustomEvent) {
+    const { actionName, context, sourceComponentId } = e.detail;
+    console.log("User action received:", actionName, context);
+
+    // Add a message showing the action
+    const contextStr = Object.keys(context).length > 0
+      ? JSON.stringify(context)
+      : "";
+    this.messages = [
+      ...this.messages,
+      { id: crypto.randomUUID(), role: "user", text: `[Action: ${actionName}] ${contextStr}` },
+    ];
+
+    this.loading = true;
+
+    try {
+      // Send action to agent
+      const parts = await this.client.sendAction(actionName, context, sourceComponentId);
+
+      let responseText = "";
+      let hasA2UIData = false;
+      const a2uiMessages: any[] = [];
+      const newArtifacts: ArtifactItem[] = [];
+
+      for (const part of parts) {
+        if (part.kind === "text") {
+          responseText += part.text;
+        } else if (part.kind === "data") {
+          const data = part.data as any;
+
+          if (data?.type === "static_ui" && data?.component) {
+            newArtifacts.push({
+              id: crypto.randomUUID(),
+              type: "static",
+              payload: data as StaticUIPayload,
+              rawJson: data,
+            });
+          } else {
+            hasA2UIData = true;
+            a2uiMessages.push(data);
+          }
+        }
+      }
+
+      if (hasA2UIData) {
+        this.globalProcessor.clearSurfaces();
+        this.globalProcessor.processMessages(a2uiMessages);
+        this.lightProcessor.clearSurfaces();
+        this.lightProcessor.processMessages(a2uiMessages);
+
+        newArtifacts.push({
+          id: crypto.randomUUID(),
+          type: "dynamic",
+          rawJson: a2uiMessages,
+        });
+      }
+
+      if (newArtifacts.length > 0) {
+        this.artifacts = newArtifacts;
+      }
+
+      const hasAnyUI = newArtifacts.length > 0;
+      this.messages = [
+        ...this.messages,
+        {
+          id: crypto.randomUUID(),
+          role: "model",
+          text: responseText || (hasAnyUI ? "I've processed your action." : "Action received."),
+        },
+      ];
+    } catch (err) {
+      console.error(err);
+      this.messages = [
+        ...this.messages,
+        { id: crypto.randomUUID(), role: "model", text: "Error: Failed to process action." },
+      ];
+    } finally {
+      this.loading = false;
+    }
+  }
+
   async handleSend(e: CustomEvent) {
     const text = e.detail.text;
     if (!text) return;
@@ -416,7 +500,7 @@ export class ChatApp extends SignalWatcher(LitElement) {
           <span class="panel-title">Artifacts</span>
         </div>
 
-        <div class="artifacts-content">
+        <div class="artifacts-content" @user-action=${this.handleUserAction}>
           ${hasAnyArtifact
         ? this.artifacts.map((artifact) => html`
                 <div class="artifact-card">
@@ -494,6 +578,45 @@ export class ArtifactRenderer extends SignalWatcher(LitElement) {
             .surfaceId=${id}
             .surface=${surface}
             .processor=${this.processor}
+            @a2uiaction=${(evt: v0_8.Events.StateEvent<"a2ui.action">) => {
+          // Resolve action context values
+          const context: Record<string, unknown> = {};
+          if (evt.detail.action.context) {
+            for (const item of evt.detail.action.context) {
+              if (item.value.literalBoolean !== undefined) {
+                context[item.key] = item.value.literalBoolean;
+              } else if (item.value.literalNumber !== undefined) {
+                context[item.key] = item.value.literalNumber;
+              } else if (item.value.literalString !== undefined) {
+                context[item.key] = item.value.literalString;
+              } else if (item.value.path) {
+                // Resolve data-bound value
+                const path = this.processor.resolvePath(
+                  item.value.path,
+                  evt.detail.dataContextPath
+                );
+                const value = this.processor.getData(
+                  evt.detail.sourceComponent,
+                  path,
+                  id
+                );
+                context[item.key] = value;
+              }
+            }
+          }
+
+          // Dispatch custom event for chat-app to handle
+          this.dispatchEvent(new CustomEvent("user-action", {
+            bubbles: true,
+            composed: true,
+            detail: {
+              actionName: evt.detail.action.name,
+              context,
+              sourceComponentId: evt.detail.sourceComponentId,
+              surfaceId: id
+            }
+          }));
+        }}
           ></a2ui-surface>
         `
     )}

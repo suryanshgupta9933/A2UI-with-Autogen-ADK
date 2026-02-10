@@ -132,6 +132,72 @@ export class ChatMessage extends SignalWatcher(LitElement) {
       width: 14px;
       height: 14px;
     }
+
+    /* Action Card Styles */
+    .action-row {
+        justify-content: flex-end;
+        width: 100%;
+        margin-bottom: 8px;
+    }
+
+    .action-card {
+        background: #fdfdfd;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        min-width: 280px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+        from { transform: translateY(10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    .action-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .action-icon {
+        font-size: 1.1em;
+    }
+
+    .action-title {
+        font-weight: 600;
+        color: #334155;
+        font-size: 0.9em;
+        text-transform: capitalize;
+    }
+
+    .action-body {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .action-item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85em;
+        line-height: 1.4;
+    }
+
+    .action-key {
+        color: #64748b;
+        font-weight: 500;
+    }
+
+    .action-value {
+        color: #0f172a;
+        font-weight: 600;
+        text-align: right;
+    }
   `;
 
   private copyToClipboard() {
@@ -143,6 +209,57 @@ export class ChatMessage extends SignalWatcher(LitElement) {
   render() {
     const roleLabel = this.role === "user" ? "You" : "Assistant";
     const avatarText = this.role === "user" ? "Y" : "AI";
+
+    // Check if this is an action message
+    let isAction = false;
+    let actionName = "";
+    let actionData: Record<string, any> = {};
+
+    if (this.role === "user" && this.text && this.text.startsWith("[Action:")) {
+      try {
+        const match = this.text.match(/^\[Action: (.*?)\] (.*)$/);
+        if (match) {
+          isAction = true;
+          actionName = match[1];
+          const jsonStr = match[2];
+          if (jsonStr) {
+            actionData = JSON.parse(jsonStr);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse action message", e);
+      }
+    }
+
+    if (isAction) {
+      const formatKey = (key: string) => {
+        // "selectedDate" -> "Selected Date"
+        return key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+      };
+
+      return html`
+        <div class="message-row action-row">
+          <div class="message-content">
+            <div class="action-card">
+              <div class="action-header">
+                <span class="action-icon">⚡</span>
+                <span class="action-title">${actionName.replace(/_/g, ' ')}</span>
+              </div>
+              ${Object.keys(actionData).length > 0 ? html`
+                <div class="action-body">
+                  ${Object.entries(actionData).map(([key, value]) => html`
+                    <div class="action-item">
+                      <span class="action-key">${formatKey(key)}:</span>
+                      <span class="action-value">${String(value)}</span>
+                    </div>
+                  `)}
+                </div>
+              ` : nothing}
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     return html`
       <div class="message-row">
