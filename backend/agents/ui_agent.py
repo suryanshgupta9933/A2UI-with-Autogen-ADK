@@ -10,17 +10,20 @@ import re
 import json
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Dict, Any
 
 from autogen_agentchat.agents import AssistantAgent
+from autogen_core.tools import FunctionTool, Tool
 from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
 from autogen_core.model_context import HeadAndTailChatCompletionContext
-from autogen_core.models import SystemMessage, UserMessage, AssistantMessage
+from autogen_core.models import SystemMessage, UserMessage, AssistantMessage, ModelInfo
 
 from a2ui.prompt_builder import get_a2ui_system_prompt
 from core.logger import configure_logger
+
 from tools.static import get_static_ui_tools, ALL_STATIC_TOOLS
+from tools.data.jira import get_jira_tools
 
 logger = configure_logger("agents.ui_agent")
 
@@ -35,7 +38,7 @@ class ChatMessage(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    """Parsed response from the agent."""
+    """Response returned by the UIAgent class."""
     response: str
     a2ui_payload: Optional[List[Dict[str, Any]]] = None
     static_ui_payload: Optional[List[Dict[str, Any]]] = None
@@ -48,11 +51,11 @@ def get_model_client() -> AzureOpenAIChatCompletionClient:
         api_key = api_key.strip('"').strip("'")
     
     opts = {
-        "azure_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini").strip('"').strip("'"),
-        "model": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini").strip('"').strip("'"),
+        "azure_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1"),
+        "model": os.getenv("AZURE_OPENAI_MODEL_NAME", "gpt-4.1"),
         "api_key": api_key,
-        "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT").strip('"').strip("'"),
-        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview").strip('"').strip("'"),
+        "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
+        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
     }
     logger.info(f"Model client initialized: {opts['model']}")
     return AzureOpenAIChatCompletionClient(**opts)
@@ -61,30 +64,30 @@ def get_model_client() -> AzureOpenAIChatCompletionClient:
 def parse_a2ui_response(response_text: str) -> AgentResponse:
     """
     Parse agent response for A2UI JSON payload.
-    Format: [Text Response] ---a2ui_JSON--- [JSON Payload]
+    Format: [Text Response] ---a2ui_JSON--- [JSON Payload] ---a2ui_JSON_END---
     """
-    delimiter = "---a2ui_JSON---"
-    parts = response_text.split(delimiter)
+    start_delimiter = "---a2ui_JSON---"
+    end_delimiter = "---a2ui_JSON_END---"
     
-    text_part = parts[0].strip()
-    json_part = "[]"
-    
-    if len(parts) > 1:
-        json_part = parts[1].strip()
-        json_part = re.sub(r"^```json", "", json_part)
-        json_part = re.sub(r"^```", "", json_part)
-        json_part = re.sub(r"```$", "", json_part)
-        json_part = json_part.strip()
+    if start_delimiter not in response_text:
+        return AgentResponse(response=response_text.strip())
 
-    a2ui_payload = []
-    try:
-        if json_part:
-            a2ui_payload = json.loads(json_part)
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to decode A2UI JSON: {e}")
+    text_part, json_section = response_text.split(start_delimiter, 1)
+    json_content = json_section.split(end_delimiter, 1)[0].strip()
+    
+    # Remove markdown code block markers if present
+    json_content = re.sub(r"^```(?:json)?", "", json_content, flags=re.IGNORECASE).strip()
+    json_content = re.sub(r"```$", "", json_content).strip()
+
+    a2ui_payload = None
+    if json_content:
+        try:
+            a2ui_payload = json.loads(json_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode A2UI JSON: {e}")
 
     return AgentResponse(
-        response=text_part,
+        response=text_part.strip(),
         a2ui_payload=a2ui_payload
     )
 
@@ -103,7 +106,7 @@ def _get_system_prompt() -> str:
     """Build the complete system prompt from file + A2UI base prompt."""
     ui_agent_prompt = _load_prompt_file()
     base_prompt = get_a2ui_system_prompt()
-    return ui_agent_prompt + "\n\n" + base_prompt
+    return base_prompt + "\n\n" + ui_agent_prompt
 
 
 class UIAgent:
@@ -113,7 +116,7 @@ class UIAgent:
     
     def __init__(self):
         self._model_client = get_model_client()
-        self._tools = get_static_ui_tools()
+        self._tools = get_static_ui_tools() + get_jira_tools()
         self._system_prompt = _get_system_prompt()
         
         logger.info(f"UIAgent initialized with {len(self._tools)} tools")
@@ -150,7 +153,7 @@ class UIAgent:
         model_context = HeadAndTailChatCompletionContext(
             initial_messages=initial_messages,
             head_size=5,
-            tail_size=10,
+            tail_size=5,
         )
         
         # Create agent with context
