@@ -10,13 +10,11 @@ from autogen_core.tools import Tool
 
 from tools.static.data_table import data_table_tool, DataTableTool
 from tools.static.time_series import time_series_tool, TimeSeriesTool
-from tools.static.stat_card import stat_card_tool, StatCardTool
 
 # All tool instances
 ALL_STATIC_TOOLS = [
     data_table_tool,
     time_series_tool,
-    stat_card_tool,
 ]
 
 
@@ -32,10 +30,8 @@ def get_static_ui_tools() -> List[Tool]:
 __all__ = [
     "data_table_tool",
     "time_series_tool",
-    "stat_card_tool",
     "DataTableTool",
     "TimeSeriesTool",
-    "StatCardTool",
     "ALL_STATIC_TOOLS",
     "get_static_ui_tools",
 ]
