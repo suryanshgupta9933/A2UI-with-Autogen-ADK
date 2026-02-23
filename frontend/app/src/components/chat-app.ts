@@ -285,7 +285,7 @@ export class ChatApp extends SignalWatcher(LitElement) {
     {
       id: "welcome",
       role: "model",
-      text: "Hello! I can generate UI components for you. Try:\n• \"Show me a table of users\"\n• \"Show sales data over time\"\n• \"Create a weather widget\"",
+      text: "Hello! I can generate UI components for you. Try:\n• \"Show me JIRA projects\"\n• \"Show me a table of sample users\"\n• \"Show sales data over time\"",
     },
   ];
 
